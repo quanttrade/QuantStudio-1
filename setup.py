@@ -20,9 +20,6 @@ setuptools.setup(
     platforms=["Windows"],
     python_requires=">=3.5",
     scripts=[],
-    package_data={
-    "QuantStudio": ["Matlab/*", "Lib/*", "Resource/*"]
-    },
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -33,8 +30,9 @@ setuptools.setup(
     install_requires=[
         "numpy>=1.14.4+mkl",# 矩阵运算
         "numexpr>=2.6.1",# 加速数值计算
-        "pandas>=0.19.0,<0.24.0",# 数据分析
+        "pandas>=0.19.0,<0.25.0",# 数据分析
         "scipy>=0.18.1",# 科学计算
+        "cvxpy>=1.0.0",# 凸规划
         "matplotlib>=2.2.3",# 绘图
         "seaborn>=0.9.0",# 绘图
         "plotly>=2.0.6",# 绘图
@@ -58,5 +56,6 @@ setuptools.setup(
         "xlrd>=0.9.0",# 读 Excel 文件
         "xlwt>=1.3.0",# 写 Excel 文件
         "PyQt5>=5.9.2",# GUI
-    ]
+    ],
+    package_data={"QuantStudio": ["Matlab/*", "Lib/*", "Resource/*"]}
 )

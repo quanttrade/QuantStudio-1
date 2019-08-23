@@ -73,12 +73,13 @@ def _saveRawDataWithReportANN(ft, report_ann_file, raw_data, factor_names, raw_d
     AllIDs = set(raw_data.index)
     for iPID, iIDs in pid_ids.items():
         with shelve.open(raw_data_dir+os.sep+iPID+os.sep+file_name) as iFile:
-            iIDs = sorted(AllIDs.intersection(set(iIDs)))
-            iData = raw_data.loc[iIDs]
+            iInterIDs = sorted(AllIDs.intersection(set(iIDs)))
+            iData = raw_data.loc[iInterIDs]
             for jFactorName in factor_names:
                 ijData = iData[CommonCols+[jFactorName]].reset_index()
                 if isANNReport: ijData.columns.name = raw_data_dir+os.sep+iPID+os.sep+report_ann_file
                 iFile[jFactorName] = ijData
+            iFile["_QS_IDs"] = iIDs
     return 0
 
 # f: 该算子所属的因子对象或因子表对象
@@ -1427,7 +1428,7 @@ class _AnalystConsensusTable(_DBTable):
         else: RawData = pd.DataFrame(np.array(RawData), columns=['日期','ID','报告期']+factor_names)
         RawData._QS_ANNReport = (CalcType!="Fwd12M")
         return RawData
-    def __QS_saveRawData__(self, raw_data, factor_names, raw_data_dir, pid_ids, file_name, pid_lock):
+    def __QS_saveRawData__(self, raw_data, factor_names, raw_data_dir, pid_ids, file_name, pid_lock, **kwargs):
         return _saveRawDataWithReportANN(self, self._ANN_ReportFileName, raw_data, factor_names, raw_data_dir, pid_ids, file_name, pid_lock)
     def __QS_genGroupInfo__(self, factors, operation_mode):
         PeriodGroup = {}
@@ -1665,7 +1666,7 @@ class _AnalystEstDetailTable(_DBTable):
         StartInd = operation_mode.DTRuler.index(StartDT)
         Args["附加字段"], Args["去重字段"] = list(Args["附加字段"]), list(Args["去重字段"])
         return [(self, FactorNames, list(RawFactorNames), operation_mode.DTRuler[StartInd:EndInd+1], Args)]
-    def __QS_saveRawData__(self, raw_data, factor_names, raw_data_dir, pid_ids, file_name, pid_lock):
+    def __QS_saveRawData__(self, raw_data, factor_names, raw_data_dir, pid_ids, file_name, pid_lock, **kwargs):
         return _saveRawDataWithReportANN(self, self._ANN_ReportFileName, raw_data, factor_names, raw_data_dir, pid_ids, file_name, pid_lock)
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         StartDate, EndDate = dts[0].date(), dts[-1].date()
@@ -1759,7 +1760,7 @@ class _AnalystEstDetailTable(_DBTable):
 class _AnnTable(_DBTable):
     """公告信息表"""
     #ANNDate = Enum(None, arg_type="SingleOption", label="公告日期", order=0)
-    Operator = Function(None, arg_type="Function", label="算子", order=1)
+    Operator = Function(lambda x: x.tolist(), arg_type="Function", label="算子", order=1)
     LookBack = Int(0, arg_type="Integer", label="回溯天数", order=2)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         FactorInfo = fdb._FactorInfo.loc[name]
@@ -1783,6 +1784,7 @@ class _AnnTable(_DBTable):
     # 如果 idt 为 None, 将返回所有有历史数据记录的 ID
     # 忽略 ifactor_name
     def getID(self, ifactor_name=None, idt=None, args={}):
+        FactorInfo = self._FactorDB._FactorInfo.loc[self.Name]
         DBTableName = self._FactorDB.TablePrefix + self._FactorDB._TableInfo.loc[self.Name, "DBTableName"]
         FieldDict = self._FactorDB._FactorInfo["DBFieldName"].loc[self.Name].loc[[self._AnnDateField, self._EndDateField, self._IDField]+self._ConditionFields]
         SQLStr = "SELECT DISTINCT "+DBTableName+"."+FieldDict[self._IDField]+" "
@@ -1803,6 +1805,7 @@ class _AnnTable(_DBTable):
     # 如果 iid 为 None, 将返回所有有历史数据记录的时间点
     # 忽略 ifactor_name
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None, args={}):
+        FactorInfo = self._FactorDB._FactorInfo.loc[self.Name]
         DBTableName = self._FactorDB.TablePrefix + self._FactorDB._TableInfo.loc[self.Name, "DBTableName"]
         FieldDict = self._FactorDB._FactorInfo["DBFieldName"].loc[self.Name].loc[[self._AnnDateField, self._EndDateField, self._IDField]+self._ConditionFields]
         if self._EndDateField is not None:
@@ -2063,14 +2066,15 @@ class WindDB2(FactorDB):
         raise __QS_Error__("因子库目前尚不支持表: '%s'" % table_name)
     # -----------------------------------------数据提取---------------------------------
     # 给定起始日期和结束日期, 获取交易所交易日期, 目前支持: "SSE", "SZSE", "SHFE", "DCE", "CZCE", "INE", "CFEEX"
-    def getTradeDay(self, start_date=None, end_date=None, exchange="SSE"):
+    def getTradeDay(self, start_date=None, end_date=None, exchange="SSE", **kwargs):
         if start_date is None: start_date = dt.datetime(1900, 1, 1)
         if end_date is None: end_date = dt.datetime.today()
         ExchangeInfo = self._TableInfo[self._TableInfo["TableClass"]=="CalendarTable"]
         ExchangeInfo = ExchangeInfo[ExchangeInfo["Description"].str.contains(exchange)]
         if ExchangeInfo.shape[0]==0: raise __QS_Error__("不支持交易所: '%s' 的交易日序列!" % exchange)
         else: Dates = self.getTable(ExchangeInfo.index[0]).getDateTime(iid=exchange, start_dt=start_date, end_dt=end_date)
-        return list(map(lambda x: x.date(), Dates))
+        if kwargs.get("output_type", "date")=="date": return list(map(lambda x: x.date(), Dates))
+        else: return Dates
     # 获取指定日 date 的全体 A 股 ID
     # date: 指定日, datetime.date
     # is_current: False 表示上市日在指定日之前的 A 股, True 表示上市日在指定日之前且尚未退市的 A 股
